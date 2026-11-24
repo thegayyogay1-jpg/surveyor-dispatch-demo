@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>หน้าเว็บผู้ส่งงานสำรวจภัย (Dispatcher Console)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans Thai", sans-serif;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen">
+  <div class="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
+    <!-- Header -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <div class="flex flex-wrap items-center gap-3">
+          <h1 class="text-xl md:text-2xl font-bold text-white">หน้าเว็บผู้ส่งงานสำรวจภัย (Dispatcher Console)</h1>
+          <span id="dbBadge" class="text-xs font-semibold px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+            กำลังเชื่อมต่อ Firebase...
+          </span>
+        </div>
+        <p class="text-xs md:text-sm text-slate-400 mt-1">
+          ส่งงานด่วนด้วยป้ายทะเบียน • ตัดยกเลิกอัตโนมัติใน 30 วินาทีหากไม่มีคนรับ • ตรวจสถานะพนักงานและใบเคลมสด
+        </p>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <button onclick="seedWorkers()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-semibold">
+          สร้างพนักงานเริ่มต้น (3 คน)
+        </button>
+        <button onclick="resetDailyQueue()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-semibold">
+          รีเซ็ตคิววันนี้
+        </button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-slate-400">พนักงานออนไลน์ (Online)</div>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span id="onlineCount" class="text-3xl font-extrabold text-emerald-400">0</span>
+          <span id="totalCount" class="text-sm text-slate-500">/ 0 คน</span>
+        </div>
+        <div class="text-xs text-slate-500 mt-1">พร้อมรับสัญญาณแจ้งเตือนงานเข้า</div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-slate-400">พนักงานว่างพร้อมรับงาน (Available)</div>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span id="availCount" class="text-3xl font-extrabold text-sky-400">0</span>
+          <span class="text-sm text-slate-500">คน</span>
+        </div>
+        <div class="text-xs text-slate-500 mt-1">ออนไลน์ + สถานะว่าง</div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+        <div class="text-xs text-slate-400">พนักงานติดงาน / ไม่ว่าง (Busy)</div>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span id="busyCount" class="text-3xl font-extrabold text-amber-400">0</span>
+          <span class="text-sm text-slate-500">คน</span>
+        </div>
+        <div class="text-xs text-slate-500 mt-1">กำลังทำเคสหรือระบบตั้งเป็นไม่ว่าง</div>
+      </div>
+    </div>
+
+    <!-- Dispatch Form + Worker List -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div class="lg:col-span-5 space-y-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <h2 class="text-base font-bold text-white mb-3">ส่งงานด่วน (กรอกแค่ป้ายทะเบียน)</h2>
+          <div class="flex gap-2">
+            <input
+              id="plateInput"
+              type="text"
+              placeholder="เช่น กข 1234"
+              onkeydown="if(event.key==='Enter') sendJob()"
+              class="flex-1 bg-slate-950 border border-slate-700 focus:border-sky-500 rounded-xl px-4 py-2.5 text-white outline-none"
+            />
+            <button onclick="sendJob()" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 font-bold text-sm text-white shrink-0">
+              ส่งงาน (30วิ)
+            </button>
+          </div>
+          <p class="text-xs text-slate-400 mt-2.5">
+            หากไม่มีพนักงานกดรับภายใน <span class="text-rose-400 font-semibold">30 วินาที</span> ระบบจะยกเลิกการจ่ายงานนี้ทันที
+          </p>
+        </div>
+
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <h2 class="text-base font-bold text-white mb-3">รายชื่อและสถานะพนักงาน</h2>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-slate-400 border-b border-slate-800">
+                  <th class="py-2 pr-2">พนักงาน</th>
+                  <th class="py-2 px-2">ออนไลน์</th>
+                  <th class="py-2 px-2">ว่าง/ไม่ว่าง</th>
+                  <th class="py-2 pl-2 text-right">งานวันนี้</th>
+                </tr>
+              </thead>
+              <tbody id="workersBody" class="divide-y divide-slate-800/80">
+                <tr><td colspan="4" class="py-4 text-center text-slate-500 text-xs">กำลังโหลดข้อมูล...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Jobs List -->
+      <div class="lg:col-span-7">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-bold text-white">รายการจ่ายงานสด</h2>
+            <span class="text-xs text-slate-400">หมดเวลาใน 30 วิ = ยกเลิกอัตโนมัติ</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-left text-slate-400 border-b border-slate-800">
+                  <th class="py-2 pr-2">ป้ายทะเบียน</th>
+                  <th class="py-2 px-2">สถานะ / เวลา</th>
+                  <th class="py-2 px-2">ผู้รับงาน</th>
+                  <th class="py-2 pl-2 text-right">ใบเคลม / จัดการ</th>
+                </tr>
+              </thead>
+              <tbody id="jobsBody" class="divide-y divide-slate-800/80">
+                <tr><td colspan="4" class="py-6 text-center text-slate-500 text-xs">ยังไม่มีรายการงาน</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Claim Modal -->
+  <div id="claimModal" class="fixed inset-0 bg-black/80 hidden items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-lg w-full p-5 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 id="claimModalTitle" class="text-lg font-bold text-white">รูปใบเคลม</h3>
+        <button onclick="closeClaimModal()" class="text-slate-400 hover:text-white text-sm px-2 py-1">ปิด</button>
+      </div>
+      <p id="claimModalMeta" class="text-xs text-slate-400"></p>
+      <img id="claimModalImg" src="" alt="ใบเคลม" class="w-full max-h-96 object-contain rounded-xl bg-slate-950 border border-slate-800" />
+    </div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCcPXE_aQWhPwF5QtDf6FgvWC_mPUZ5EIA",
+      authDomain: "surveyor-dispatch-v1.firebaseapp.com",
+      databaseURL: "https://surveyor-dispatch-v1-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "surveyor-dispatch-v1",
+      storageBucket: "surveyor-dispatch-v1.firebasestorage.app",
+      messagingSenderId: "578294203979",
+      appId: "1:578294203979:web:b5f497724d1f077d00afce",
+      measurementId: "G-91LPHY3DV3"
+    };
+
+    const AUTO_CANCEL_MS = 30000;
+    let db = null;
+    let workers = {};
+    let jobs = {};
+    const cancellingJobIds = new Set();
+
+    function setDbBadge(text, state) {
+      const badge = document.getElementById("dbBadge");
+      badge.textContent = text;
+      badge.className = "text-xs font-semibold px-3 py-1 rounded-full border ";
+      if (state === "connected") {
+        badge.className += "bg-emerald-500/20 text-emerald-300 border-emerald-500/40";
+      } else if (state === "error") {
+        badge.className += "bg-rose-500/20 text-rose-300 border-rose-500/40";
+      } else {
+        badge.className += "bg-amber-500/20 text-amber-300 border-amber-500/40";
+      }
+    }
+
+    try {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+      db = firebase.database();
+
+      db.ref(".info/connected").on("value", (snap) => {
+        if (snap.val() === true) {
+          setDbBadge("เชื่อมต่อ Firebase สำเร็จ", "connected");
+        } else {
+          setDbBadge("กำลังเชื่อมต่อ Firebase...", "connecting");
+        }
+      });
+
+      db.ref("surveyors").on("value", (snap) => {
+        workers = snap.val() || {};
+        renderWorkers();
+      }, (err) => {
+        setDbBadge("อ่านข้อมูลพนักงานไม่ได้: " + err.code, "error");
+      });
+
+      db.ref("dispatchJobs").on("value", (snap) => {
+        jobs = snap.val() || {};
+        enforce30SecTimeout();
+        renderJobs();
+      }, (err) => {
+        setDbBadge("อ่านข้อมูลงานไม่ได้: " + err.code, "error");
+      });
+    } catch (e) {
+      setDbBadge("ผิดพลาด: " + e.message, "error");
+    }
+
+    async function seedWorkers() {
+      if (!db) return;
+      await db.ref("surveyors").set({
+        w1: { name: "สมชาย (เขต 1)", isOnline: true, isAvailable: true, jobsToday: 0, lastJobAt: 0 },
+        w2: { name: "สมหญิง (เขต 1)", isOnline: true, isAvailable: true, jobsToday: 0, lastJobAt: 0 },
+        w3: { name: "วิชัย (เขต 2)", isOnline: true, isAvailable: true, jobsToday: 0, lastJobAt: 0 }
+      });
+    }
+
+    async function resetDailyQueue() {
+      if (!db) return;
+      const updates = {};
+      Object.keys(workers).forEach((id) => {
+        updates[`surveyors/${id}/jobsToday`] = 0;
+        updates[`surveyors/${id}/lastJobAt`] = 0;
+        updates[`surveyors/${id}/isAvailable`] = true;
+      });
+      await db.ref().update(updates);
+    }
+
+    async function sendJob() {
+      if (!db) return;
+      const input = document.getElementById("plateInput");
+      const plate = input.value.trim();
+      if (!plate) {
+        input.focus();
+        return;
+      }
+      const now = Date.now();
+      await db.ref("dispatchJobs").push({
+        plateNumber: plate,
+        status: "open",
+        createdAt: now,
+        expiresAt: now + AUTO_CANCEL_MS,
+        assignedTo: null,
+        assignedToName: null,
+        cancelledAt: null,
+        cancelReason: null,
+        claimImage: null,
+        claimLocked: false
+      });
+      input.value = "";
+    }
+
+    async function resendJob(jobId) {
+      if (!db) return;
+      const job = jobs[jobId];
+      if (!job) return;
+      const now = Date.now();
+      await db.ref("dispatchJobs").push({
+        plateNumber: job.plateNumber,
+        status: "open",
+        createdAt: now,
+        expiresAt: now + AUTO_CANCEL_MS,
+        assignedTo: null,
+        assignedToName: null,
+        cancelledAt: null,
+        cancelReason: null,
+        claimImage: null,
+        claimLocked: false
+      });
+    }
+
+    async function enforce30SecTimeout() {
+      if (!db) return;
+      const now = Date.now();
+      for (const [id, job] of Object.entries(jobs)) {
+        if (!job || job.status !== "open") continue;
+        const deadline = job.expiresAt || ((job.createdAt || now) + AUTO_CANCEL_MS);
+        if (now >= deadline && !cancellingJobIds.has(id)) {
+          cancellingJobIds.add(id);
+          try {
+            await db.ref(`dispatchJobs/${id}`).transaction((curr) => {
+              if (!curr || curr.status !== "open") return curr;
+              return {
+                ...curr,
+                status: "cancelled",
+                cancelledAt: Date.now(),
+                cancelReason: "timeout_30s"
+              };
+            });
+          } finally {
+            cancellingJobIds.delete(id);
+          }
+        }
+      }
+    }
+
+    setInterval(() => {
+      enforce30SecTimeout();
+      renderJobs();
+    }, 1000);
+
+    function renderWorkers() {
+      const list = Object.entries(workers);
+      const online = list.filter(([, w]) => !!w.isOnline).length;
+      const avail = list.filter(([, w]) => !!w.isOnline && !!w.isAvailable).length;
+      const busy = list.filter(([, w]) => !!w.isOnline && !w.isAvailable).length;
+
+      document.getElementById("onlineCount").textContent = online;
+      document.getElementById("totalCount").textContent = `/ ${list.length} คน`;
+      document.getElementById("availCount").textContent = avail;
+      document.getElementById("busyCount").textContent = busy;
+
+      const tbody = document.getElementById("workersBody");
+      if (!list.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-slate-500 text-xs">ยังไม่มีข้อมูลพนักงาน กด "สร้างพนักงานเริ่มต้น (3 คน)"</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map(([id, w]) => `
+        <tr>
+          <td class="py-2.5 pr-2 font-semibold text-white">${w.name || id}</td>
+          <td class="py-2.5 px-2">
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${w.isOnline ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-700 text-slate-300"}">
+              ${w.isOnline ? "ออนไลน์" : "ออฟไลน์"}
+            </span>
+          </td>
+          <td class="py-2.5 px-2">
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold ${w.isAvailable ? "bg-sky-500/20 text-sky-300" : "bg-amber-500/20 text-amber-300"}">
+              ${w.isAvailable ? "ว่าง" : "ติดงาน"}
+            </span>
+          </td>
+          <td class="py-2.5 pl-2 text-right font-mono">${w.jobsToday || 0}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderJobs() {
+      const now = Date.now();
+      const list = Object.entries(jobs)
+        .map(([id, j]) => ({ id, ...j }))
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      const tbody = document.getElementById("jobsBody");
+      if (!list.length) {
+        tbody.innerHTML = `<tr><td colspan="4" class="py-6 text-center text-slate-500 text-xs">ยังไม่มีรายการงาน</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map((j) => {
+        const deadline = j.expiresAt || ((j.createdAt || now) + AUTO_CANCEL_MS);
+        const remSec = Math.max(0, Math.ceil((deadline - now) / 1000));
+
+        let statusHtml = "";
+        if (j.status === "open") {
+          statusHtml = `
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300">รอรับงาน</span>
+            <div class="text-xs font-mono text-rose-400 mt-1">เหลือ ${remSec} วิ</div>
+          `;
+        } else if (j.status === "in_progress") {
+          statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-500/20 text-sky-300">กำลังทำ</span>`;
+        } else if (j.status === "completed") {
+          statusHtml = `<span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300">เสร็จงานแล้ว</span>`;
+        } else if (j.status === "cancelled") {
+          statusHtml = `
+            <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-300">ยกเลิกแล้ว</span>
+            <div class="text-[11px] text-slate-400 mt-1">ไม่มีคนรับใน 30 วิ</div>
+          `;
+        }
+
+        const viewBtn = j.claimImage
+          ? `<button onclick="openClaimModal('${j.id}')" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white">ดูรูปใบเคลม</button>`
+          : `<span class="text-xs text-slate-500">-</span>`;
+
+        const resendBtn = j.status === "cancelled"
+          ? `<button onclick="resendJob('${j.id}')" class="ml-1 px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs font-semibold text-white">ส่งซ้ำ</button>`
+          : "";
+
+        return `
+          <tr>
+            <td class="py-2.5 pr-2 font-bold text-white">${j.plateNumber || "-"}</td>
+            <td class="py-2.5 px-2">${statusHtml}</td>
+            <td class="py-2.5 px-2 text-slate-200">${j.assignedToName || "-"}</td>
+            <td class="py-2.5 pl-2 text-right whitespace-nowrap">${viewBtn}${resendBtn}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function openClaimModal(jobId) {
+      const j = jobs[jobId];
+      if (!j || !j.claimImage) return;
+      document.getElementById("claimModalTitle").textContent = `ใบเคลมทะเบียน ${j.plateNumber}`;
+      document.getElementById("claimModalMeta").textContent =
+        `ผู้รับงาน: ${j.assignedToName || "-"} • สถานะใบเคลม: ${j.claimLocked ? "ยืนยันแล้ว (ล็อกถาวร)" : "รอตรวจ/ยังแก้ได้"}`;
+      document.getElementById("claimModalImg").src = j.claimImage;
+      const modal = document.getElementById("claimModal");
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+    }
+
+    function closeClaimModal() {
+      const modal = document.getElementById("claimModal");
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+    }
+  </script>
+</body>
+</html>

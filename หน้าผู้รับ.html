@@ -1,0 +1,1485 @@
+<!DOCTYPE html>
+<html lang="th" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>แอพมือถือพนักงานสำรวจภัย (Surveyor Receiver)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ตั้งค่าฟอนต์หลักและฟอนต์ตัวเลขแบบ monospace */
+    body {
+      font-family: 'IBM Plex Sans Thai', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #090d16;
+      color: #f8fafc;
+    }
+
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* แอนิเมชันแจ้งเตือนเมื่อมีงานใหม่เข้าและกำลังดังต่อเนื่อง */
+    @keyframes incomingPulse {
+      0%, 100% {
+        box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.55);
+      }
+      50% {
+        box-shadow: 0 0 0 11px rgba(245, 158, 11, 0);
+      }
+    }
+
+    .incoming-pulse {
+      animation: incomingPulse 1.5s infinite;
+    }
+
+    /* ปรับแต่ง Scrollbar ให้เข้ากับธีม Dark Slate */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-[#090d16] text-slate-100 antialiased selection:bg-amber-500/30 selection:text-amber-200">
+  <!-- กล่องแจ้งเตือนมุมขวาบน (แทน alert/confirm) -->
+  <div id="toastContainer" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-3 sm:px-0"></div>
+
+  <!-- แถบส่วนหัวด้านบนแบบ Mobile-First -->
+  <header class="border-b border-slate-800/90 bg-slate-950/95 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-md mx-auto px-4 py-3 space-y-2.5">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center text-amber-400 shrink-0">
+            <!-- ไอคอนสัญญาณรับงาน -->
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <h1 class="text-sm sm:text-base font-bold text-white truncate">
+                Surveyor Receiver
+              </h1>
+              <span id="dbStatusPill" class="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                เชื่อมต่อ...
+              </span>
+            </div>
+            <p class="text-[11px] text-slate-400 truncate">
+              หน้าผู้รับงานสำรวจภัย • ปัดขวาเพื่อรับงาน
+            </p>
+          </div>
+        </div>
+
+        <!-- ปุ่มเปิด/ปิดเสียงแจ้งเตือน -->
+        <button
+          id="soundToggleBtn"
+          type="button"
+          onclick="window.toggleSoundAlert()"
+          class="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 transition flex items-center gap-1.5 cursor-pointer shrink-0"
+        >
+          <span id="soundIcon">🔔</span>
+          <span id="soundText">เปิดเสียง</span>
+        </button>
+      </div>
+
+      <!-- แถบสถานะเสียง + ปุ่มทดสอบเสียง + ปุ่มตั้งค่าเสียงเตือน -->
+      <div class="flex items-center justify-between gap-2 flex-wrap pt-0.5">
+        <span
+          id="soundStateBadge"
+          class="px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-amber-500/15 text-amber-300 border-amber-400/35"
+        >
+          เสียง: รอปลดล็อก (แตะจอ)
+        </span>
+
+        <div class="flex items-center gap-1.5">
+          <button
+            type="button"
+            onclick="window.testAlertSoundNow()"
+            class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-sky-500/15 hover:bg-sky-500/25 text-sky-200 border border-sky-400/35 transition cursor-pointer"
+          >
+            ▶ ทดสอบเสียง
+          </button>
+          <button
+            type="button"
+            onclick="window.openSoundSettingsModal()"
+            class="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 border border-amber-400/35 transition cursor-pointer"
+          >
+            ⚙ ตั้งค่าเสียงเตือน
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- พื้นที่หลักของแอพมือถือพนักงาน -->
+  <main class="max-w-md mx-auto px-4 py-4 space-y-4 pb-10">
+    <!-- กล่องเลือกบัญชีพนักงาน -->
+    <section class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3 shadow-lg">
+      <div class="flex items-center justify-between gap-2">
+        <label for="workerAccountSelect" class="text-xs font-semibold text-slate-300">
+          บัญชีพนักงานที่ใช้งานอยู่
+        </label>
+        <span id="workerStatsBadge" class="text-xs font-mono-num text-amber-300 font-semibold">
+          0 งานวันนี้
+        </span>
+      </div>
+
+      <select
+        id="workerAccountSelect"
+        onchange="window.handleSelectWorker(this.value)"
+        class="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 focus:border-amber-400 outline-none text-sm font-semibold text-white cursor-pointer"
+      >
+        <option value="w1">กำลังโหลดรายชื่อพนักงาน...</option>
+      </select>
+
+      <div id="workerMetaLine" class="flex items-center justify-between text-[11px] text-slate-400 font-mono-num pt-0.5">
+        <span>โซน: —</span>
+        <span>รับล่าสุด: —</span>
+      </div>
+    </section>
+
+    <!-- แผงสถานะ: ออนไลน์/ออฟไลน์ (พนักงานกดได้) และ สถานะว่าง/ไม่ว่าง (อ่านอย่างเดียว / ระบบควบคุม) -->
+    <section class="grid grid-cols-2 gap-3">
+      <!-- สวิตช์ ออนไลน์ / ออฟไลน์ -->
+      <button
+        id="onlineToggleCard"
+        type="button"
+        onclick="window.toggleWorkerOnline()"
+        class="rounded-2xl p-3.5 border text-left transition cursor-pointer shadow"
+      >
+        <div class="flex items-center justify-between text-xs font-semibold">
+          <span>สถานะออนไลน์</span>
+          <span id="onlineDot" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+        </div>
+        <div id="onlineLabel" class="text-base font-bold mt-1.5 text-slate-300">
+          ออฟไลน์
+        </div>
+        <div class="text-[10px] text-slate-400 mt-0.5">
+          แตะเพื่อเปิด/ปิดรับงาน
+        </div>
+      </button>
+
+      <!-- กล่องแสดงสถานะว่าง / ไม่ว่าง (NOT clickable by worker) -->
+      <div
+        id="availableStatusCard"
+        aria-readonly="true"
+        class="rounded-2xl p-3.5 border text-left select-none cursor-not-allowed shadow"
+      >
+        <div class="flex items-center justify-between text-xs font-semibold">
+          <span>ความพร้อมรับงาน 🔒</span>
+          <span id="availableDot" class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+        </div>
+        <div id="availableLabel" class="text-base font-bold mt-1.5 text-amber-300">
+          ไม่ว่าง
+        </div>
+        <div class="text-[10px] text-slate-400 mt-0.5">
+          ระบบจัดการอัตโนมัติ
+        </div>
+      </div>
+    </section>
+
+    <!-- โซนงานใหม่ที่เปิดรับ (แสดงเมื่อพนักงาน ออนไลน์ + ว่าง และมีงาน status === 'open') -->
+    <section class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <h2 class="text-sm font-bold text-white flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+            งานใหม่รอรับ
+          </h2>
+          <span
+            id="ringStatusTag"
+            class="hidden px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-400/40"
+          >
+            กำลังดังต่อเนื่อง
+          </span>
+        </div>
+        <span id="openJobsCounter" class="text-xs font-mono-num px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">
+          0 งาน
+        </span>
+      </div>
+
+      <div id="incomingJobsContainer" class="space-y-3">
+        <div class="rounded-xl border border-dashed border-slate-800 p-5 text-center text-xs text-slate-400">
+          กำลังโหลดข้อมูลงานจากระบบ...
+        </div>
+      </div>
+    </section>
+
+    <!-- โซน "งานของฉัน" (งานที่ assignedTo === selectedWorkerId) -->
+    <section class="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <div>
+          <h2 class="text-sm font-bold text-white">งานของฉัน</h2>
+          <p class="text-[11px] text-slate-400">
+            แนบรูปใบเคลม 1 รูปก่อนเสร็จงาน • แก้ไขได้จนกว่าจะกด "ยืนยันส่งงาน"
+          </p>
+        </div>
+        <span id="myJobsCounter" class="text-xs font-mono-num px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">
+          0 งาน
+        </span>
+      </div>
+
+      <div id="myJobsContainer" class="space-y-3">
+        <div class="rounded-xl border border-dashed border-slate-800 p-5 text-center text-xs text-slate-400">
+          ยังไม่มีงานที่ได้รับมอบหมาย
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- โมดอลตั้งค่าเสียงเตือน (Alert Sound Settings Modal) -->
+  <div id="soundSettingsModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4">
+    <div class="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <h3 class="text-base font-bold text-white">ตั้งค่าเสียงเตือน</h3>
+          <p class="text-xs text-slate-400 mt-0.5">
+            เลือกโทนเสียงเตือนและรูปแบบการดังซ้ำจนกว่าจะมีคนรับหรือหมดเวลารับงาน (60 วินาที)
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick="window.closeSoundSettingsModal()"
+          class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+        >
+          ✕
+        </button>
+      </div>
+
+      <!-- เลือกโทนเสียงเตือน -->
+      <div class="space-y-2">
+        <div class="text-xs font-semibold text-slate-300">เลือกรูปแบบเสียงเตือน</div>
+        <div id="toneOptionsList" class="grid grid-cols-1 gap-2"></div>
+      </div>
+
+      <!-- ตั้งค่าระยะห่างการดังซ้ำและระดับเสียง -->
+      <div class="rounded-xl bg-slate-950/85 border border-slate-800 p-3.5 space-y-3">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-semibold text-slate-300">ดังซ้ำทุกๆ</span>
+          <span id="repeatIntervalLabel" class="font-mono-num font-bold text-amber-300">2.2 วินาที</span>
+        </div>
+        <input
+          id="repeatIntervalRange"
+          type="range"
+          min="1.2"
+          max="4.0"
+          step="0.2"
+          value="2.2"
+          oninput="window.handleRepeatIntervalChange(this.value)"
+          class="w-full accent-amber-400 cursor-pointer"
+        />
+
+        <div class="flex items-center justify-between text-xs pt-1">
+          <span class="font-semibold text-slate-300">ความดังของเสียง</span>
+          <span id="volumePercentLabel" class="font-mono-num font-bold text-sky-300">85%</span>
+        </div>
+        <input
+          id="volumeRange"
+          type="range"
+          min="0.2"
+          max="1.0"
+          step="0.05"
+          value="0.85"
+          oninput="window.handleVolumeChange(this.value)"
+          class="w-full accent-sky-400 cursor-pointer"
+        />
+
+        <div class="flex items-center justify-between pt-1">
+          <div>
+            <div class="text-xs font-semibold text-slate-200">ดังต่อเนื่องเมื่อมีงานเปิดรับ</div>
+            <div class="text-[11px] text-slate-400">หยุดอัตโนมัติเมื่อมีคนรับงาน หรือครบ 60 วินาที</div>
+          </div>
+          <button
+            id="continuousToggleBtn"
+            type="button"
+            onclick="window.toggleContinuousMode()"
+            class="px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer"
+          >
+            เปิดอยู่
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-2 pt-1">
+        <button
+          type="button"
+          onclick="window.testAlertSoundNow()"
+          class="px-4 py-2.5 rounded-xl text-xs font-bold bg-sky-500/20 hover:bg-sky-500/30 text-sky-200 border border-sky-400/40 transition cursor-pointer"
+        >
+          ▶ ฟังตัวอย่างเสียงที่เลือก
+        </button>
+        <button
+          type="button"
+          onclick="window.closeSoundSettingsModal()"
+          class="px-5 py-2.5 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition cursor-pointer"
+        >
+          บันทึกและปิด
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- โมดอลแนบ / แก้ไข / ยืนยันส่งรูปใบเคลม (Claim Slip Modal) -->
+  <div id="claimSlipModal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/85 backdrop-blur-sm p-4">
+    <div class="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-700 p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-start justify-between gap-2">
+        <div>
+          <h3 id="slipModalTitle" class="text-base font-bold text-white">แนบรูปใบเคลมและปิดงาน</h3>
+          <p class="text-xs text-slate-400 mt-0.5">
+            ต้องมีรูปใบเคลม 1 รูปก่อนจึงจะกดยืนยันส่งงานได้
+          </p>
+        </div>
+        <button
+          type="button"
+          onclick="window.closeClaimSlipModal()"
+          class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer"
+        >
+          ✕
+        </button>
+      </div>
+
+      <!-- แถบแจ้งสถานะการล็อกใบเคลม -->
+      <div id="slipLockBanner" class="rounded-xl px-3.5 py-2.5 text-xs font-semibold border"></div>
+
+      <!-- ช่องเลือกไฟล์รูปใบเคลม (image/*) -->
+      <div class="space-y-1.5">
+        <label for="slipFileInput" class="block text-xs font-semibold text-slate-300">
+          เลือกรูปใบเคลม (1 รูป)
+        </label>
+        <input
+          id="slipFileInput"
+          type="file"
+          accept="image/*"
+          onchange="window.handleSlipFileChange(event)"
+          class="block w-full text-xs text-slate-300 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-400 bg-slate-950 border border-slate-700 rounded-xl cursor-pointer"
+        />
+      </div>
+
+      <!-- พื้นที่แสดงตัวอย่างรูป -->
+      <div id="slipPreviewBox" class="hidden space-y-1.5">
+        <div class="flex items-center justify-between text-xs text-slate-400">
+          <span>ตัวอย่างรูปใบเคลม</span>
+          <span id="slipPreviewTag" class="font-semibold text-amber-300">ฉบับร่าง (แก้ไขได้)</span>
+        </div>
+        <img
+          id="slipPreviewImg"
+          alt="รูปใบเคลมที่เลือก"
+          class="w-full max-h-60 object-contain rounded-xl bg-slate-950 border border-slate-800"
+        />
+      </div>
+
+      <!-- ปุ่มบันทึกรูปฉบับร่าง และ ปุ่มยืนยันส่งงาน (ล็อกถาวร) -->
+      <div class="flex flex-col sm:flex-row gap-2 pt-1">
+        <button
+          id="saveSlipDraftBtn"
+          type="button"
+          onclick="window.saveSlipDraft()"
+          disabled
+          class="flex-1 py-2.5 px-3.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-amber-200 border border-amber-400/30 transition cursor-pointer"
+        >
+          บันทึกรูป (ยังไม่ยืนยัน / แก้ได้)
+        </button>
+        <button
+          id="confirmSlipSubmitBtn"
+          type="button"
+          onclick="window.confirmSlipAndCompleteJob()"
+          disabled
+          class="flex-1 py-2.5 px-3.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 transition cursor-pointer"
+        >
+          ยืนยันส่งงาน (ล็อกถาวร)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+    import {
+      getDatabase,
+      ref,
+      update,
+      onValue,
+      runTransaction
+    } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+
+    // ตั้งค่าเชื่อมต่อ Firebase Realtime Database ของโปรเจกต์ surveyor-dispatch-v1
+    const firebaseConfig = {
+      apiKey: "AIzaSyCcPXE_aQWhPwF5QtDf6FgvWC_mPUZ5EIA",
+      authDomain: "surveyor-dispatch-v1.firebaseapp.com",
+      databaseURL: "https://surveyor-dispatch-v1-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "surveyor-dispatch-v1",
+      storageBucket: "surveyor-dispatch-v1.firebasestorage.app",
+      messagingSenderId: "578294203979",
+      appId: "1:578294203979:web:b5f497724d1f077d00afce",
+      measurementId: "G-91LPHY3DV3"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // ค่าคงที่ของระบบรับงานและเวลารอตอบรับงาน (60 วินาที)
+    const COLLISION_WINDOW_MS = 350;
+    const JOB_RESPONSE_TIMEOUT_MS = 60 * 1000;
+
+    // รายการโทนเสียงเตือนที่พนักงานเลือกได้
+    const ALERT_TONES = [
+      {
+        id: "emergency_bell",
+        name: "กระดิ่งฉุกเฉิน",
+        desc: "เสียงระฆังสองโทนชัดเจน ฟังง่ายแม้ขณะขับรถ"
+      },
+      {
+        id: "urgent_siren",
+        name: "ไซเรนด่วน",
+        desc: "โทนไล่ระดับความถี่ขึ้น-ลง เร่งด่วนทันที"
+      },
+      {
+        id: "dispatch_chime",
+        name: "กริ่งเรียกงาน",
+        desc: "เสียงกริ่งเรียกเข้า 3 จังหวะ นุ่มแต่เด่น"
+      },
+      {
+        id: "rapid_pulse",
+        name: "โทนจังหวะถี่",
+        desc: "เสียงเตือนสั้นถี่ 4 จังหวะ ป้องกันการพลาดงาน"
+      }
+    ];
+
+    let surveyorsCache = {};
+    let jobsCache = {};
+    let selectedWorkerId = "w1";
+
+    // สถานะการตั้งค่าเสียงและการปลดล็อก AudioContext ของเบราว์เซอร์
+    let soundEnabled = true;
+    let audioUnlocked = false;
+    let selectedToneId = "emergency_bell";
+    let repeatIntervalSec = 2.2;
+    let soundVolume = 0.85;
+    let continuousRingEnabled = true;
+
+    // เก็บรายการ jobId ที่พนักงานปิดเสียงดังซ้ำเฉพาะเครื่องนี้ในรอบงานนั้นๆ
+    const mutedJobIds = new Set();
+
+    // เก็บคำขอรับงานที่เข้ามาใกล้เคียงกันต่อ jobId เพื่อใช้กฎคิวเมื่อกดชนกัน
+    const collisionBuffers = {};
+
+    // ตัวแปรสำหรับโมดอลแนบ/แก้ไข/ยืนยันใบเคลม
+    let activeSlipJobId = null;
+    let activeSlipDataUrl = null;
+    let audioContext = null;
+    let repeatRingTimer = null;
+
+    // แสดง Toast แจ้งเตือนมุมขวาบนแทน alert()
+    function showToast(message, type = "info") {
+      const container = document.getElementById("toastContainer");
+      const styles = {
+        success: "bg-emerald-950/95 border-emerald-500/50 text-emerald-200",
+        warning: "bg-amber-950/95 border-amber-500/50 text-amber-200",
+        error: "bg-rose-950/95 border-rose-500/50 text-rose-200",
+        info: "bg-slate-900/95 border-sky-500/50 text-sky-200"
+      };
+      const el = document.createElement("div");
+      el.className = `pointer-events-auto rounded-xl border px-4 py-3 text-xs sm:text-sm font-medium shadow-xl transition-all duration-300 ${styles[type] || styles.info}`;
+      el.textContent = message;
+      container.appendChild(el);
+
+      setTimeout(() => {
+        el.classList.add("opacity-0", "translate-x-4");
+        setTimeout(() => el.remove(), 250);
+      }, 3200);
+    }
+
+    function formatClockTH(ts) {
+      if (!ts) return "ยังไม่เคย";
+      return new Date(ts).toLocaleTimeString("th-TH", { hour12: false });
+    }
+
+    // คำนวณเวลาที่เหลือของงาน (สูงสุด 60 วินาทีนับจาก createdAt)
+    function getRemainingSeconds(job, now = Date.now()) {
+      const createdAt = job && job.createdAt ? job.createdAt : now;
+      const elapsedMs = Math.max(0, now - createdAt);
+      const remainingMs = Math.max(0, JOB_RESPONSE_TIMEOUT_MS - elapsedMs);
+      return Math.ceil(remainingMs / 1000);
+    }
+
+    function isJobTimedOut(job, now = Date.now()) {
+      return !job || job.status !== "open" || getRemainingSeconds(job, now) <= 0;
+    }
+
+    // ปลดล็อก AudioContext เมื่อผู้ใช้คลิกหรือแตะหน้าจอ
+    async function ensureAudioUnlocked() {
+      try {
+        if (!audioContext) {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === "suspended") {
+          await audioContext.resume();
+        }
+        if (audioContext.state === "running") {
+          audioUnlocked = true;
+        }
+        renderSoundStatusBadge();
+        return audioUnlocked;
+      } catch (err) {
+        console.warn("Unable to unlock AudioContext:", err);
+        renderSoundStatusBadge();
+        return false;
+      }
+    }
+
+    // เล่นโทนเสียงเตือนตามรูปแบบที่พนักงานเลือก
+    async function playSelectedAlertTone(toneId = selectedToneId) {
+      if (!soundEnabled) return false;
+      const ready = await ensureAudioUnlocked();
+      if (!ready || !audioContext) return false;
+
+      try {
+        const now = audioContext.currentTime;
+        const peakGain = Math.max(0.05, Math.min(0.45, soundVolume * 0.35));
+
+        const scheduleTone = (type, startOffset, duration, startFreq, endFreq = null) => {
+          const osc = audioContext.createOscillator();
+          const gain = audioContext.createGain();
+          const t0 = now + startOffset;
+          const t1 = t0 + duration;
+
+          osc.type = type;
+          osc.frequency.setValueAtTime(startFreq, t0);
+          if (endFreq !== null) {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(60, endFreq), t1);
+          }
+
+          gain.gain.setValueAtTime(0.001, t0);
+          gain.gain.exponentialRampToValueAtTime(peakGain, t0 + 0.02);
+          gain.gain.exponentialRampToValueAtTime(0.0008, t1);
+
+          osc.connect(gain);
+          gain.connect(audioContext.destination);
+          osc.start(t0);
+          osc.stop(t1 + 0.01);
+        };
+
+        if (toneId === "urgent_siren") {
+          scheduleTone("sawtooth", 0.0, 0.24, 540, 1180);
+          scheduleTone("sawtooth", 0.25, 0.24, 1180, 580);
+          scheduleTone("sawtooth", 0.50, 0.24, 580, 1220);
+        } else if (toneId === "dispatch_chime") {
+          scheduleTone("sine", 0.0, 0.14, 784);
+          scheduleTone("sine", 0.16, 0.14, 987.77);
+          scheduleTone("sine", 0.32, 0.22, 1174.66);
+        } else if (toneId === "rapid_pulse") {
+          scheduleTone("square", 0.0, 0.08, 1046.5);
+          scheduleTone("square", 0.12, 0.08, 1046.5);
+          scheduleTone("square", 0.24, 0.08, 1318.5);
+          scheduleTone("square", 0.36, 0.10, 1318.5);
+        } else {
+          // emergency_bell (ค่าเริ่มต้น)
+          scheduleTone("triangle", 0.0, 0.16, 880);
+          scheduleTone("triangle", 0.17, 0.18, 1174.66);
+          scheduleTone("triangle", 0.42, 0.16, 880);
+          scheduleTone("triangle", 0.59, 0.22, 1318.5);
+        }
+
+        return true;
+      } catch (err) {
+        console.warn("Error playing tone:", err);
+        return false;
+      }
+    }
+
+    // ตรวจสอบว่าควรมีเสียงดังต่อเนื่องอยู่หรือไม่ ณ ขณะนี้
+    function shouldRingContinuously() {
+      if (!soundEnabled || !continuousRingEnabled) return false;
+      const me = surveyorsCache[selectedWorkerId];
+      if (!me || !me.isOnline || !me.isAvailable) return false;
+
+      const now = Date.now();
+      return Object.entries(jobsCache).some(
+        ([id, job]) =>
+          job &&
+          job.status === "open" &&
+          !isJobTimedOut(job, now) &&
+          !mutedJobIds.has(id)
+      );
+    }
+
+    function renderSoundStatusBadge() {
+      const badge = document.getElementById("soundStateBadge");
+      const toggleBtn = document.getElementById("soundToggleBtn");
+      const soundIcon = document.getElementById("soundIcon");
+      const soundText = document.getElementById("soundText");
+
+      if (!soundEnabled) {
+        badge.textContent = "เสียง: ปิดอยู่";
+        badge.className = "px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-slate-800 text-slate-400 border-slate-700";
+        soundIcon.textContent = "🔕";
+        soundText.textContent = "ปิดเสียง";
+        toggleBtn.className = "px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700 transition flex items-center gap-1.5 cursor-pointer shrink-0";
+        return;
+      }
+
+      soundIcon.textContent = "🔔";
+      soundText.textContent = "เปิดเสียง";
+      toggleBtn.className = "px-3 py-2 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700/80 transition flex items-center gap-1.5 cursor-pointer shrink-0";
+
+      if (audioUnlocked) {
+        badge.textContent = "เสียง: พร้อมดัง";
+        badge.className = "px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-emerald-500/15 text-emerald-300 border-emerald-400/35";
+      } else {
+        badge.textContent = "เสียง: รอปลดล็อก (แตะจอ)";
+        badge.className = "px-2.5 py-1 rounded-full text-[11px] font-semibold border bg-amber-500/15 text-amber-300 border-amber-400/35";
+      }
+    }
+
+    function syncContinuousRingLoop() {
+      const active = shouldRingContinuously();
+      const ringTag = document.getElementById("ringStatusTag");
+      if (ringTag) {
+        ringTag.classList.toggle("hidden", !active);
+      }
+
+      if (!active) {
+        if (repeatRingTimer) {
+          clearInterval(repeatRingTimer);
+          repeatRingTimer = null;
+        }
+        return;
+      }
+
+      if (!repeatRingTimer) {
+        playSelectedAlertTone(selectedToneId);
+        repeatRingTimer = setInterval(() => {
+          if (!shouldRingContinuously()) {
+            clearInterval(repeatRingTimer);
+            repeatRingTimer = null;
+            const tag = document.getElementById("ringStatusTag");
+            if (tag) tag.classList.add("hidden");
+            return;
+          }
+          playSelectedAlertTone(selectedToneId);
+        }, Math.round(repeatIntervalSec * 1000));
+      }
+    }
+
+    window.toggleSoundAlert = async function () {
+      soundEnabled = !soundEnabled;
+      if (soundEnabled) {
+        await ensureAudioUnlocked();
+        showToast("เปิดเสียงแจ้งเตือนแล้ว", "info");
+      } else {
+        showToast("ปิดเสียงแจ้งเตือนแล้ว", "warning");
+      }
+      renderSoundStatusBadge();
+      syncContinuousRingLoop();
+    };
+
+    window.testAlertSoundNow = async function () {
+      if (!soundEnabled) {
+        soundEnabled = true;
+      }
+      const ok = await playSelectedAlertTone(selectedToneId);
+      renderSoundStatusBadge();
+      if (ok) {
+        const toneObj = ALERT_TONES.find((t) => t.id === selectedToneId);
+        showToast(`กำลังทดสอบเสียง: ${toneObj ? toneObj.name : ""}`, "info");
+      } else {
+        showToast("แตะหน้าจออีกครั้งเพื่อปลดล็อกเสียงของเบราว์เซอร์", "warning");
+      }
+    };
+
+    window.muteRingForJob = function (jobId) {
+      mutedJobIds.add(jobId);
+      syncContinuousRingLoop();
+      renderAll();
+      showToast("ปิดเสียงดังซ้ำสำหรับงานนี้แล้ว", "info");
+    };
+
+    // โมดอลตั้งค่าเสียงเตือน
+    function renderToneOptionsInModal() {
+      const wrap = document.getElementById("toneOptionsList");
+      wrap.innerHTML = ALERT_TONES.map((tone) => {
+        const active = tone.id === selectedToneId;
+        return `
+          <button
+            type="button"
+            onclick="window.selectAlertTone('${tone.id}')"
+            class="w-full text-left rounded-xl p-3 border transition cursor-pointer flex items-center justify-between gap-2 ${
+              active
+                ? "bg-amber-500/15 border-amber-400 text-white"
+                : "bg-slate-950/80 border-slate-800 text-slate-300 hover:border-slate-700"
+            }"
+          >
+            <div>
+              <div class="text-xs font-bold ${active ? "text-amber-300" : "text-white"}">${tone.name}</div>
+              <div class="text-[11px] text-slate-400 mt-0.5">${tone.desc}</div>
+            </div>
+            <span class="px-2 py-0.5 rounded-md text-[10px] font-bold ${
+              active ? "bg-amber-400 text-slate-950" : "bg-slate-800 text-slate-400"
+            }">
+              ${active ? "เลือกอยู่" : "เลือก"}
+            </span>
+          </button>
+        `;
+      }).join("");
+
+      document.getElementById("repeatIntervalRange").value = String(repeatIntervalSec);
+      document.getElementById("repeatIntervalLabel").textContent = `${repeatIntervalSec.toFixed(1)} วินาที`;
+      document.getElementById("volumeRange").value = String(soundVolume);
+      document.getElementById("volumePercentLabel").textContent = `${Math.round(soundVolume * 100)}%`;
+
+      const contBtn = document.getElementById("continuousToggleBtn");
+      if (continuousRingEnabled) {
+        contBtn.textContent = "เปิดอยู่";
+        contBtn.className = "px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer bg-emerald-500/20 text-emerald-300 border-emerald-400/40";
+      } else {
+        contBtn.textContent = "ปิดอยู่";
+        contBtn.className = "px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer bg-slate-800 text-slate-400 border-slate-700";
+      }
+    }
+
+    window.openSoundSettingsModal = async function () {
+      await ensureAudioUnlocked();
+      renderToneOptionsInModal();
+      const modal = document.getElementById("soundSettingsModal");
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+    };
+
+    window.closeSoundSettingsModal = function () {
+      const modal = document.getElementById("soundSettingsModal");
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+    };
+
+    window.selectAlertTone = async function (toneId) {
+      selectedToneId = toneId;
+      renderToneOptionsInModal();
+      await playSelectedAlertTone(toneId);
+      renderSoundStatusBadge();
+    };
+
+    window.handleRepeatIntervalChange = function (val) {
+      repeatIntervalSec = parseFloat(val) || 2.2;
+      document.getElementById("repeatIntervalLabel").textContent = `${repeatIntervalSec.toFixed(1)} วินาที`;
+      if (repeatRingTimer) {
+        clearInterval(repeatRingTimer);
+        repeatRingTimer = null;
+      }
+      syncContinuousRingLoop();
+    };
+
+    window.handleVolumeChange = function (val) {
+      soundVolume = parseFloat(val) || 0.85;
+      document.getElementById("volumePercentLabel").textContent = `${Math.round(soundVolume * 100)}%`;
+    };
+
+    window.toggleContinuousMode = function () {
+      continuousRingEnabled = !continuousRingEnabled;
+      renderToneOptionsInModal();
+      syncContinuousRingLoop();
+    };
+
+    // จัดลำดับคิวสำหรับกรณีกดชนกัน: คนที่ lastJobAt น้อยสุด (0/ไม่มีมาก่อน) แล้วตามด้วย jobsToday น้อยสุด
+    function rankCollisionCandidates(workerIds) {
+      return workerIds
+        .map((id) => ({ id, data: surveyorsCache[id] }))
+        .filter((item) => item.data && item.data.isOnline && item.data.isAvailable)
+        .sort((a, b) => {
+          const aLast = a.data.lastJobAt ?? 0;
+          const bLast = b.data.lastJobAt ?? 0;
+          if (aLast === 0 && bLast !== 0) return -1;
+          if (aLast !== 0 && bLast === 0) return 1;
+          if (aLast !== bLast) return aLast - bLast;
+          return (a.data.jobsToday || 0) - (b.data.jobsToday || 0);
+        });
+    }
+
+    window.handleSelectWorker = function (workerId) {
+      selectedWorkerId = workerId;
+      renderAll();
+      syncContinuousRingLoop();
+    };
+
+    // พนักงานกดสลับสถานะ ออนไลน์ / ออฟไลน์ (หากตั้งเป็นออฟไลน์ จะตั้ง isAvailable = false ด้วย)
+    window.toggleWorkerOnline = async function () {
+      await ensureAudioUnlocked();
+      const me = surveyorsCache[selectedWorkerId];
+      if (!me) {
+        showToast("ไม่พบข้อมูลบัญชีพนักงานในระบบ", "warning");
+        return;
+      }
+
+      try {
+        const nextOnline = !me.isOnline;
+        const patch = {
+          [`surveyors/${selectedWorkerId}/isOnline`]: nextOnline
+        };
+        if (!nextOnline) {
+          patch[`surveyors/${selectedWorkerId}/isAvailable`] = false;
+        }
+        await update(ref(db), patch);
+        showToast(nextOnline ? "เปิดสถานะออนไลน์แล้ว" : "ปิดสถานะออนไลน์และตั้งเป็นไม่ว่างแล้ว", "info");
+      } catch (err) {
+        console.error(err);
+        showToast("อัปเดตสถานะออนไลน์ไม่สำเร็จ", "error");
+      }
+    };
+
+    // รับคำขอปัด/กดรับงาน: หากไม่ชนกันให้ผู้รับก่อนทันที หากชนกันภายใน 350ms ให้ผู้เข้าคิวลำดับแรกตาม lastJobAt / jobsToday
+    window.requestClaimJob = function (jobId, workerId = selectedWorkerId, forceCollisionCheck = false) {
+      ensureAudioUnlocked();
+      const me = surveyorsCache[workerId];
+      if (!me || !me.isOnline || !me.isAvailable) {
+        showToast("ต้องอยู่ในสถานะ ออนไลน์ และ ว่าง ก่อนจึงจะรับงานได้ครับ", "warning");
+        return;
+      }
+
+      const job = jobsCache[jobId];
+      if (!job || job.status !== "open") {
+        showToast("งานนี้ถูกรับไปแล้วหรือปิดรับแล้วครับ", "error");
+        return;
+      }
+
+      if (isJobTimedOut(job)) {
+        showToast("หมดเวลารับงาน (60 วินาที) สำหรับเคสนี้แล้วครับ", "warning");
+        renderAll();
+        return;
+      }
+
+      const now = Date.now();
+      let buffer = collisionBuffers[jobId];
+
+      if (!buffer) {
+        buffer = {
+          entries: [{ workerId, arrivedAt: now }],
+          timerId: setTimeout(() => {
+            flushClaimBuffer(jobId, forceCollisionCheck);
+          }, COLLISION_WINDOW_MS)
+        };
+        collisionBuffers[jobId] = buffer;
+      } else if (!buffer.entries.some((e) => e.workerId === workerId)) {
+        buffer.entries.push({ workerId, arrivedAt: now });
+      }
+    };
+
+    async function flushClaimBuffer(jobId, forceCollisionCheck) {
+      const buffer = collisionBuffers[jobId];
+      delete collisionBuffers[jobId];
+      if (!buffer || !buffer.entries.length) return;
+
+      const contenders = buffer.entries.map((e) => e.workerId);
+      const isCollision = forceCollisionCheck || contenders.length > 1;
+
+      let chosenWorkerId = contenders[0];
+      if (isCollision) {
+        const onlineAvailIds = Object.entries(surveyorsCache)
+          .filter(([, w]) => w && w.isOnline && w.isAvailable)
+          .map(([id]) => id);
+        const pool = onlineAvailIds.length > 1 ? onlineAvailIds : contenders;
+        const ranked = rankCollisionCandidates(pool);
+        if (ranked.length > 0) {
+          chosenWorkerId = ranked[0].id;
+        }
+      }
+
+      const winner = surveyorsCache[chosenWorkerId];
+      if (!winner || !winner.isOnline || !winner.isAvailable) {
+        return;
+      }
+
+      const claimTimestamp = Date.now();
+      let claimedInTx = false;
+
+      try {
+        await runTransaction(ref(db, `dispatchJobs/${jobId}`), (currentJob) => {
+          if (!currentJob) return currentJob;
+          if (currentJob.status !== "open") {
+            return currentJob;
+          }
+          if (isJobTimedOut(currentJob, claimTimestamp)) {
+            return currentJob;
+          }
+          claimedInTx = true;
+          return {
+            ...currentJob,
+            status: "in_progress",
+            assignedTo: chosenWorkerId,
+            assignedToName: winner.name || chosenWorkerId,
+            assignedAt: claimTimestamp
+          };
+        });
+
+        if (claimedInTx) {
+          await update(ref(db), {
+            [`surveyors/${chosenWorkerId}/isAvailable`]: false,
+            [`surveyors/${chosenWorkerId}/jobsToday`]: (winner.jobsToday || 0) + 1,
+            [`surveyors/${chosenWorkerId}/lastJobAt`]: claimTimestamp
+          });
+
+          if (chosenWorkerId === selectedWorkerId) {
+            showToast(`รับงานทะเบียน "${jobsCache[jobId]?.plateNumber || ""}" สำเร็จ!`, "success");
+          } else {
+            showToast(`งานถูกล็อกให้ ${winner.name || chosenWorkerId} ตามกติกาคิว`, "warning");
+          }
+        } else {
+          showToast("งานนี้ถูกรับไปแล้วหรือหมดเวลาครับ", "error");
+        }
+      } catch (err) {
+        console.error(err);
+        showToast("เกิดข้อผิดพลาดระหว่างรับงาน", "error");
+      }
+    }
+
+    // ย่อขนาดรูปภาพผ่าน Canvas เป็น JPEG Data URL เพื่อเก็บใน Realtime Database ได้อย่างเหมาะสม
+    function compressImageToJpegDataUrl(file, maxWidth = 900, quality = 0.72) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            const scale = Math.min(1, maxWidth / (img.width || maxWidth));
+            const canvas = document.createElement("canvas");
+            canvas.width = Math.max(1, Math.round((img.width || maxWidth) * scale));
+            canvas.height = Math.max(1, Math.round((img.height || maxWidth) * scale));
+            const ctx = canvas.getContext("2d");
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL("image/jpeg", quality));
+          };
+          img.onerror = reject;
+          img.src = ev.target.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    window.openClaimSlipModal = function (jobId) {
+      ensureAudioUnlocked();
+      const job = jobsCache[jobId];
+      if (!job) return;
+
+      activeSlipJobId = jobId;
+      activeSlipDataUrl = job.claimImage || null;
+
+      document.getElementById("slipModalTitle").textContent = `ใบเคลม • ทะเบียน ${job.plateNumber}`;
+      const fileInput = document.getElementById("slipFileInput");
+      fileInput.value = "";
+      fileInput.disabled = !!job.claimLocked;
+
+      syncSlipModalState(job);
+      const modal = document.getElementById("claimSlipModal");
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+    };
+
+    function syncSlipModalState(job) {
+      const banner = document.getElementById("slipLockBanner");
+      const previewBox = document.getElementById("slipPreviewBox");
+      const previewImg = document.getElementById("slipPreviewImg");
+      const previewTag = document.getElementById("slipPreviewTag");
+      const saveDraftBtn = document.getElementById("saveSlipDraftBtn");
+      const confirmBtn = document.getElementById("confirmSlipSubmitBtn");
+
+      const isLocked = !!job.claimLocked;
+
+      if (isLocked) {
+        banner.className = "rounded-xl px-3.5 py-2.5 text-xs font-semibold border bg-purple-500/15 border-purple-400/40 text-purple-200";
+        banner.textContent = "🔒 ยืนยันส่งงานแล้ว · ล็อกถาวร ไม่สามารถแก้ไขรูปได้อีก";
+      } else if (activeSlipDataUrl) {
+        banner.className = "rounded-xl px-3.5 py-2.5 text-xs font-semibold border bg-amber-500/15 border-amber-400/40 text-amber-200";
+        banner.textContent = "✏️ ยังไม่ยืนยันส่งงาน — สามารถเปลี่ยน/แก้ไขรูปใบเคลมได้";
+      } else {
+        banner.className = "rounded-xl px-3.5 py-2.5 text-xs font-semibold border bg-rose-500/15 border-rose-400/40 text-rose-200";
+        banner.textContent = "⚠️ ต้องแนบรูปใบเคลม 1 รูปก่อนจึงจะกดยืนยันส่งงานได้";
+      }
+
+      if (activeSlipDataUrl) {
+        previewBox.classList.remove("hidden");
+        previewImg.src = activeSlipDataUrl;
+        previewTag.textContent = isLocked ? "ล็อกถาวรแล้ว" : "ฉบับร่าง (แก้ไขได้)";
+        previewTag.className = isLocked ? "font-semibold text-purple-300" : "font-semibold text-amber-300";
+      } else {
+        previewBox.classList.add("hidden");
+        previewImg.removeAttribute("src");
+      }
+
+      const hasOneImage = !!activeSlipDataUrl;
+      saveDraftBtn.disabled = isLocked || !hasOneImage;
+      confirmBtn.disabled = isLocked || !hasOneImage;
+    }
+
+    window.handleSlipFileChange = async function (event) {
+      const job = jobsCache[activeSlipJobId];
+      if (!job || job.claimLocked) return;
+
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+
+      try {
+        activeSlipDataUrl = await compressImageToJpegDataUrl(file);
+        syncSlipModalState(job);
+      } catch (err) {
+        console.error(err);
+        showToast("อ่านไฟล์รูปไม่สำเร็จ กรุณาลองใหม่", "error");
+      }
+    };
+
+    // บันทึก/เปลี่ยนรูปใบเคลมฉบับร่าง (claimLocked: false) เพื่อแก้ไขได้จนกว่าจะกดยืนยันส่งงาน
+    window.saveSlipDraft = async function () {
+      const job = jobsCache[activeSlipJobId];
+      if (!job) return;
+      if (job.claimLocked) {
+        showToast("ใบเคลมนี้ล็อกถาวรแล้ว แก้ไขไม่ได้ครับ", "warning");
+        return;
+      }
+      if (!activeSlipDataUrl) {
+        showToast("กรุณาเลือกรูปใบเคลม 1 รูปก่อนครับ", "warning");
+        return;
+      }
+
+      try {
+        await update(ref(db, `dispatchJobs/${activeSlipJobId}`), {
+          claimImage: activeSlipDataUrl,
+          claimLocked: false,
+          claimUpdatedAt: Date.now()
+        });
+        showToast("บันทึกรูปใบเคลมแล้ว (ยังแก้ไขได้จนกว่าจะกดยืนยันส่งงาน)", "success");
+      } catch (err) {
+        console.error(err);
+        showToast("บันทึกรูปไม่สำเร็จ", "error");
+      }
+    };
+
+    // ยืนยันส่งงาน: ล็อกใบเคลมถาวร (claimLocked: true), เปลี่ยน status เป็น completed, บันทึก completedAt และคืน isAvailable = true
+    window.confirmSlipAndCompleteJob = async function () {
+      const job = jobsCache[activeSlipJobId];
+      if (!job) return;
+      if (job.claimLocked) {
+        showToast("งานนี้ยืนยันส่งงานแล้วครับ", "warning");
+        return;
+      }
+      if (!activeSlipDataUrl) {
+        showToast("ต้องแนบรูปใบเคลม 1 รูปก่อนจึงจะยืนยันส่งงานได้ครับ", "warning");
+        return;
+      }
+
+      const now = Date.now();
+      const targetWorkerId = job.assignedTo || selectedWorkerId;
+      const updates = {
+        [`dispatchJobs/${activeSlipJobId}/claimImage`]: activeSlipDataUrl,
+        [`dispatchJobs/${activeSlipJobId}/claimLocked`]: true,
+        [`dispatchJobs/${activeSlipJobId}/status`]: "completed",
+        [`dispatchJobs/${activeSlipJobId}/claimUpdatedAt`]: now,
+        [`dispatchJobs/${activeSlipJobId}/completedAt`]: now
+      };
+
+      if (targetWorkerId && surveyorsCache[targetWorkerId]) {
+        updates[`surveyors/${targetWorkerId}/isAvailable`] = true;
+      }
+
+      try {
+        await update(ref(db), updates);
+        window.closeClaimSlipModal();
+        showToast("ยืนยันส่งงานและล็อกใบเคลมถาวรแล้ว สถานะกลับเป็นว่าง", "success");
+      } catch (err) {
+        console.error(err);
+        showToast("ยืนยันส่งงานไม่สำเร็จ", "error");
+      }
+    };
+
+    window.closeClaimSlipModal = function () {
+      activeSlipJobId = null;
+      activeSlipDataUrl = null;
+      const modal = document.getElementById("claimSlipModal");
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+    };
+
+    // ผูกท่าทางการปัดขวาเพื่อรับงานบนการ์ดงานเปิดรับ
+    function attachSwipeSlider(trackEl, thumbEl, jobId) {
+      if (!trackEl || !thumbEl) return;
+
+      let isDragging = false;
+      let startX = 0;
+      let offset = 0;
+
+      const maxOffset = () => {
+        const tRect = trackEl.getBoundingClientRect();
+        const bRect = thumbEl.getBoundingClientRect();
+        return Math.max(8, tRect.width - bRect.width - 8);
+      };
+
+      const moveThumb = (val, animate = false) => {
+        const clamped = Math.max(0, Math.min(val, maxOffset()));
+        offset = clamped;
+        thumbEl.style.transition = animate ? "transform 160ms ease-out" : "none";
+        thumbEl.style.transform = `translateX(${clamped}px)`;
+      };
+
+      const onPointerDown = (clientX) => {
+        isDragging = true;
+        startX = clientX - offset;
+      };
+
+      const onPointerMove = (clientX) => {
+        if (!isDragging) return;
+        moveThumb(clientX - startX, false);
+      };
+
+      const onPointerUp = () => {
+        if (!isDragging) return;
+        isDragging = false;
+        const limit = maxOffset();
+        if (offset >= limit * 0.72) {
+          moveThumb(limit, true);
+          setTimeout(() => {
+            window.requestClaimJob(jobId, selectedWorkerId, false);
+          }, 90);
+        } else {
+          moveThumb(0, true);
+        }
+      };
+
+      thumbEl.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        onPointerDown(e.clientX);
+      });
+      window.addEventListener("mousemove", (e) => onPointerMove(e.clientX));
+      window.addEventListener("mouseup", () => onPointerUp());
+
+      thumbEl.addEventListener("touchstart", (e) => {
+        if (e.touches.length) onPointerDown(e.touches[0].clientX);
+      }, { passive: true });
+      window.addEventListener("touchmove", (e) => {
+        if (isDragging && e.touches.length) onPointerMove(e.touches[0].clientX);
+      }, { passive: true });
+      window.addEventListener("touchend", () => onPointerUp());
+    }
+
+    function renderAll() {
+      renderSoundStatusBadge();
+
+      const workerEntries = Object.entries(surveyorsCache);
+      const selectEl = document.getElementById("workerAccountSelect");
+
+      if (workerEntries.length > 0) {
+        if (!surveyorsCache[selectedWorkerId]) {
+          selectedWorkerId = workerEntries[0][0];
+        }
+        selectEl.innerHTML = workerEntries
+          .map(([id, w]) => `<option value="${id}" ${id === selectedWorkerId ? "selected" : ""}>${w.name || id} (${id})</option>`)
+          .join("");
+      } else {
+        selectEl.innerHTML = `<option value="w1">ไม่พบข้อมูลพนักงานใน Firebase</option>`;
+      }
+
+      const me = surveyorsCache[selectedWorkerId] || {
+        name: selectedWorkerId,
+        zone: "-",
+        isOnline: false,
+        isAvailable: false,
+        jobsToday: 0,
+        lastJobAt: 0
+      };
+
+      document.getElementById("workerStatsBadge").textContent = `${me.jobsToday || 0} งานวันนี้`;
+      document.getElementById("workerMetaLine").innerHTML = `
+        <span>โซน: ${me.zone || "-"}</span>
+        <span>รับล่าสุด: ${formatClockTH(me.lastJobAt)}</span>
+      `;
+
+      // อัปเดตปุ่ม ออนไลน์ / ออฟไลน์ (พนักงานกดได้)
+      const onlineCard = document.getElementById("onlineToggleCard");
+      const onlineDot = document.getElementById("onlineDot");
+      const onlineLabel = document.getElementById("onlineLabel");
+      if (me.isOnline) {
+        onlineCard.className = "rounded-2xl p-3.5 border text-left transition cursor-pointer shadow bg-emerald-500/15 border-emerald-400/50";
+        onlineDot.className = "w-2.5 h-2.5 rounded-full bg-emerald-400";
+        onlineLabel.className = "text-base font-bold mt-1.5 text-emerald-300";
+        onlineLabel.textContent = "ออนไลน์";
+      } else {
+        onlineCard.className = "rounded-2xl p-3.5 border text-left transition cursor-pointer shadow bg-slate-900 border-slate-800";
+        onlineDot.className = "w-2.5 h-2.5 rounded-full bg-slate-600";
+        onlineLabel.className = "text-base font-bold mt-1.5 text-slate-400";
+        onlineLabel.textContent = "ออฟไลน์";
+      }
+
+      // อัปเดตกล่องสถานะ ว่าง / ไม่ว่าง (NOT clickable by worker)
+      const availCard = document.getElementById("availableStatusCard");
+      const availDot = document.getElementById("availableDot");
+      const availLabel = document.getElementById("availableLabel");
+      const isReadyNow = !!(me.isOnline && me.isAvailable);
+      if (isReadyNow) {
+        availCard.className = "rounded-2xl p-3.5 border text-left select-none cursor-not-allowed shadow bg-sky-500/15 border-sky-400/45";
+        availDot.className = "w-2.5 h-2.5 rounded-full bg-sky-400";
+        availLabel.className = "text-base font-bold mt-1.5 text-sky-300";
+        availLabel.textContent = "ว่าง";
+      } else {
+        availCard.className = "rounded-2xl p-3.5 border text-left select-none cursor-not-allowed shadow bg-amber-500/10 border-amber-400/30";
+        availDot.className = "w-2.5 h-2.5 rounded-full bg-amber-400";
+        availLabel.className = "text-base font-bold mt-1.5 text-amber-300";
+        availLabel.textContent = "ไม่ว่าง";
+      }
+
+      const now = Date.now();
+      const openJobs = Object.entries(jobsCache)
+        .filter(([, j]) => j && j.status === "open")
+        .map(([id, j]) => ({ id, ...j, remainingSec: getRemainingSeconds(j, now) }))
+        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+      const activeOpenJobs = openJobs.filter((j) => j.remainingSec > 0);
+      document.getElementById("openJobsCounter").textContent = `${activeOpenJobs.length} งาน`;
+      const incomingContainer = document.getElementById("incomingJobsContainer");
+
+      if (!isReadyNow) {
+        incomingContainer.innerHTML = `
+          <div class="rounded-xl border border-slate-800 bg-slate-950/70 p-4 text-center space-y-1">
+            <div class="text-xs font-semibold text-amber-300">
+              ${!me.isOnline ? "คุณอยู่ในสถานะ ออฟไลน์" : "ขณะนี้สถานะของคุณเป็น ไม่ว่าง"}
+            </div>
+            <p class="text-[11px] text-slate-400">
+              ${!me.isOnline
+                ? "แตะปุ่ม 'สถานะออนไลน์' ด้านบนเพื่อเปิดรับงาน"
+                : "สถานะว่าง/ไม่ว่างจะกลับเป็น 'ว่าง' อัตโนมัติเมื่อยืนยันส่งงาน"}
+            </p>
+          </div>
+        `;
+      } else if (!openJobs.length) {
+        incomingContainer.innerHTML = `
+          <div class="rounded-xl border border-dashed border-slate-800 p-5 text-center text-xs text-slate-400">
+            ยังไม่มีงานใหม่ที่เปิดรับอยู่ • รอสัญญาณจากผู้ส่งงาน
+          </div>
+        `;
+      } else {
+        incomingContainer.innerHTML = openJobs.map((job) => {
+          const expired = job.remainingSec <= 0;
+          const isMuted = mutedJobIds.has(job.id);
+
+          if (expired) {
+            return `
+              <div class="rounded-2xl bg-slate-950/85 border border-slate-800 p-4 space-y-2 opacity-75">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="px-2.5 py-0.5 rounded-md bg-rose-500/20 text-rose-300 border border-rose-400/35 text-[11px] font-bold">
+                    หมดเวลารับงาน (60s)
+                  </span>
+                  <span class="text-xs font-mono-num text-slate-500">00:00</span>
+                </div>
+                <div class="text-lg font-bold text-slate-300">🚗 ${job.plateNumber}</div>
+                <div class="text-[11px] text-slate-500">
+                  ครบกำหนดเวลารอตอบรับงานแล้ว ระบบหยุดเสียงเตือนอัตโนมัติ
+                </div>
+              </div>
+            `;
+          }
+
+          return `
+            <div class="rounded-2xl bg-gradient-to-br from-amber-500/20 via-amber-500/10 to-slate-950 border-2 border-amber-400 p-4 incoming-pulse space-y-3">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <div class="flex items-center gap-1.5">
+                  <span class="px-2.5 py-0.5 rounded-md bg-amber-400 text-slate-950 text-[11px] font-extrabold">
+                    งานเข้าใหม่
+                  </span>
+                  <span class="px-2 py-0.5 rounded-md bg-slate-900/90 text-amber-200 border border-amber-400/30 text-[11px] font-mono-num font-bold">
+                    เหลือ ${job.remainingSec}s
+                  </span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-mono-num text-amber-200">${formatClockTH(job.createdAt)}</span>
+                  <button
+                    type="button"
+                    onclick="window.muteRingForJob('${job.id}')"
+                    class="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 cursor-pointer"
+                  >
+                    ${isMuted ? "ปิดเสียงแล้ว" : "หยุดเสียงงานนี้"}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <div class="text-xs text-amber-200/80">ป้ายทะเบียนรถ</div>
+                <div class="text-2xl font-extrabold text-white tracking-wide mt-0.5">
+                  🚗 ${job.plateNumber}
+                </div>
+              </div>
+
+              <!-- แถบปัดขวาเพื่อรับงาน -->
+              <div
+                id="swipeTrack-${job.id}"
+                class="relative h-[52px] rounded-xl bg-slate-950/90 border border-amber-400/40 p-1 flex items-center select-none overflow-hidden"
+              >
+                <span class="w-full text-center text-xs font-bold text-amber-300 pointer-events-none pl-10">
+                  ปัดขวาเพื่อรับงาน →
+                </span>
+                <div
+                  id="swipeThumb-${job.id}"
+                  class="w-11 h-[42px] rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold flex items-center justify-center shadow-lg cursor-grab active:cursor-grabbing z-10 shrink-0"
+                >
+                  →
+                </div>
+              </div>
+
+              <!-- ปุ่มกดรับด่วนสำหรับทดสอบบนเดสก์ท็อป -->
+              <button
+                type="button"
+                onclick="window.requestClaimJob('${job.id}', '${selectedWorkerId}', false)"
+                class="w-full py-2 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 text-amber-200 border border-amber-400/30 text-xs font-semibold transition cursor-pointer"
+              >
+                กดรับงานทันที
+              </button>
+            </div>
+          `;
+        }).join("");
+
+        activeOpenJobs.forEach((job) => {
+          attachSwipeSlider(
+            document.getElementById(`swipeTrack-${job.id}`),
+            document.getElementById(`swipeThumb-${job.id}`),
+            job.id
+          );
+        });
+      }
+
+      // แสดง "งานของฉัน" (assignedTo === selectedWorkerId)
+      const myJobs = Object.entries(jobsCache)
+        .filter(([, j]) => j && j.assignedTo === selectedWorkerId)
+        .map(([id, j]) => ({ id, ...j }))
+        .sort((a, b) => (b.assignedAt || b.createdAt || 0) - (a.assignedAt || a.createdAt || 0));
+
+      document.getElementById("myJobsCounter").textContent = `${myJobs.length} งาน`;
+      const myJobsContainer = document.getElementById("myJobsContainer");
+
+      if (!myJobs.length) {
+        myJobsContainer.innerHTML = `
+          <div class="rounded-xl border border-dashed border-slate-800 p-5 text-center text-xs text-slate-400">
+            ยังไม่มีงานของบัญชีนี้
+          </div>
+        `;
+      } else {
+        myJobsContainer.innerHTML = myJobs.map((job) => {
+          const isLocked = !!job.claimLocked;
+          const hasDraft = !!job.claimImage && !isLocked;
+
+          let statusPill = "";
+          if (job.status === "completed" || isLocked) {
+            statusPill = `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/40">completed · ล็อกถาวร</span>`;
+          } else if (hasDraft) {
+            statusPill = `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-400/40">ยังไม่ยืนยันส่งงาน (แก้ได้)</span>`;
+          } else {
+            statusPill = `<span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-500/20 text-sky-300 border border-sky-400/40">in_progress</span>`;
+          }
+
+          const actionBtn = isLocked
+            ? `<button
+                 type="button"
+                 disabled
+                 class="w-full mt-2.5 py-2 px-3 rounded-xl text-xs font-semibold bg-slate-800/70 text-slate-500 border border-slate-800 cursor-not-allowed"
+               >
+                 ยืนยันส่งงานแล้ว · ล็อกถาวร (แก้ไขไม่ได้)
+               </button>`
+            : `<button
+                 type="button"
+                 onclick="window.openClaimSlipModal('${job.id}')"
+                 class="w-full mt-2.5 py-2 px-3 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition cursor-pointer"
+               >
+                 ${hasDraft ? "แก้ไขรูปใบเคลม / ยืนยันส่งงาน" : "แนบรูปใบเคลม / เสร็จงาน"}
+               </button>`;
+
+          return `
+            <div class="rounded-xl bg-slate-950/85 border border-slate-800 p-3.5">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <span class="font-bold text-sm text-white">🚗 ${job.plateNumber}</span>
+                ${statusPill}
+              </div>
+              <div class="text-[11px] font-mono-num text-slate-400 mt-1">
+                รับงาน: ${formatClockTH(job.assignedAt)}
+                ${job.completedAt ? ` • ปิดงาน: ${formatClockTH(job.completedAt)}` : ""}
+              </div>
+              ${actionBtn}
+            </div>
+          `;
+        }).join("");
+      }
+
+      if (activeSlipJobId && jobsCache[activeSlipJobId]) {
+        syncSlipModalState(jobsCache[activeSlipJobId]);
+      }
+
+      syncContinuousRingLoop();
+    }
+
+    // ปลดล็อกเสียงอัตโนมัติเมื่อผู้ใช้แตะหรือคลิกหน้าจอครั้งแรก
+    ["pointerdown", "keydown"].forEach((evtName) => {
+      window.addEventListener(
+        evtName,
+        () => {
+          ensureAudioUnlocked().then(() => {
+            syncContinuousRingLoop();
+          });
+        },
+        { passive: true }
+      );
+    });
+
+    // อัปเดตตัวนับถอยหลัง 60 วินาทีและสถานะการดังต่อเนื่องทุกวินาที
+    setInterval(() => {
+      if (Object.keys(jobsCache).length > 0) {
+        renderAll();
+      }
+    }, 1000);
+
+    // ฟังการเปลี่ยนแปลงของ surveyors แบบ Real-time
+    onValue(
+      ref(db, "surveyors"),
+      (snap) => {
+        const pill = document.getElementById("dbStatusPill");
+        pill.textContent = "ออนไลน์ DB";
+        pill.className = "px-2 py-0.5 text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30";
+        surveyorsCache = snap.val() || {};
+        renderAll();
+      },
+      (err) => {
+        console.error(err);
+        const pill = document.getElementById("dbStatusPill");
+        pill.textContent = "DB ผิดพลาด";
+        pill.className = "px-2 py-0.5 text-[10px] font-semibold rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30";
+      }
+    );
+
+    // ฟังการเปลี่ยนแปลงของ dispatchJobs แบบ Real-time
+    onValue(
+      ref(db, "dispatchJobs"),
+      (snap) => {
+        const nextJobs = snap.val() || {};
+        // ล้างรายการปิดเสียงเฉพาะงานที่พ้นสถานะ open หรือหมดเวลาไปแล้ว
+        mutedJobIds.forEach((jobId) => {
+          const j = nextJobs[jobId];
+          if (!j || j.status !== "open" || isJobTimedOut(j)) {
+            mutedJobIds.delete(jobId);
+          }
+        });
+        jobsCache = nextJobs;
+        renderAll();
+      },
+      (err) => {
+        console.error(err);
+        showToast("โหลดรายการงานจาก Firebase ไม่สำเร็จ", "error");
+      }
+    );
+  </script>
+</body>
+</html>
